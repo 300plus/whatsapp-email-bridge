@@ -1,0 +1,4 @@
+python-axolotl==0.1.39
+parse==1.8.0
+yowsup2==2.5.2
+pyyaml==3.12

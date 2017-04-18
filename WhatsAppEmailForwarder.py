@@ -15,61 +15,47 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import os, signal
-import datetime, sys
-import smtplib, poplib, imaplib
-import base64
-import yaml
-import threading # FIXME: not needed with asyncore
-import Queue
-import socket
-import time
 import asyncore
 import atexit
+import base64
+import datetime
+import imaplib
+import os
+import poplib
+import queue
+import smtplib
+import socket
 import tempfile
+import threading  # FIXME: not needed with asyncore
+import time
 import traceback
-from parse import parse
 from email.mime.text import MIMEText
 from email.parser import Parser
 from email.utils import formatdate, parseaddr
 from smtpd import SMTPChannel, SMTPServer
-from html2text import html2text
 
-from yowsup.common import YowConstants
-from yowsup import env
-from yowsup.layers.auth import YowCryptLayer, YowAuthenticationProtocolLayer, \
-        AuthError
-from yowsup.layers.coder import YowCoderLayer
-from yowsup.layers import YowLayerEvent, YowParallelLayer, EventCallback
+import yaml
+from parse import parse
+from yowsup.layers import YowLayerEvent, EventCallback
+from yowsup.layers.auth import AuthError
 from yowsup.layers.interface import YowInterfaceLayer, ProtocolEntityCallback
-from yowsup.layers.logger import YowLoggerLayer
 from yowsup.layers.network import YowNetworkLayer
-from yowsup.layers.protocol_acks import YowAckProtocolLayer
 from yowsup.layers.protocol_acks.protocolentities \
         import OutgoingAckProtocolEntity
-from yowsup.layers.protocol_media import YowMediaProtocolLayer
+from yowsup.layers.protocol_media.mediauploader import MediaUploader
 from yowsup.layers.protocol_media.protocolentities \
         import ImageDownloadableMediaMessageProtocolEntity
 from yowsup.layers.protocol_media.protocolentities \
-        import LocationMediaMessageProtocolEntity
-from yowsup.layers.protocol_media.protocolentities \
-        import VCardMediaMessageProtocolEntity
-from yowsup.layers.protocol_media.protocolentities \
         import RequestUploadIqProtocolEntity
-from yowsup.layers.protocol_presence.protocolentities \
-        import AvailablePresenceProtocolEntity
-from yowsup.layers.protocol_media.mediauploader import MediaUploader
-from yowsup.layers.protocol_iq import YowIqProtocolLayer
-from yowsup.layers.protocol_messages import YowMessagesProtocolLayer
 from yowsup.layers.protocol_messages.protocolentities \
         import TextMessageProtocolEntity
-from yowsup.layers.protocol_receipts import YowReceiptProtocolLayer
+from yowsup.layers.protocol_presence.protocolentities \
+        import AvailablePresenceProtocolEntity
 from yowsup.layers.protocol_receipts.protocolentities \
         import OutgoingReceiptProtocolEntity
-from yowsup.layers.protocol_presence import YowPresenceProtocolLayer
-from yowsup.layers.stanzaregulator import YowStanzaRegulator
-from yowsup.layers.axolotl import YowAxolotlLayer # FIXME
-from yowsup.stacks import YowStack, YowStackBuilder, YOWSUP_CORE_LAYERS
+from yowsup.stacks import YowStackBuilder
+
+from html2text import html2text
 
 
 class MailLayer(YowInterfaceLayer):
@@ -79,23 +65,23 @@ class MailLayer(YowInterfaceLayer):
     @EventCallback(YowNetworkLayer.EVENT_STATE_DISCONNECTED)
     def onStateDisconnected(self, entity):
         reason = layerEvent.getArg("reason")
-        print "<= WhatsApp: disconnected (%s)" % (reason)
+        print("<= WhatsApp: disconnected (%s)" % (reason))
         content = "Disconnected: %s" % (reason)
         self.layer.sendEmailRaw(content, subject="WhatsApp disconnected")
         os._exit(os.EX_OK)
 
     @ProtocolEntityCallback("success")
     def onSuccess(self, entity):
-        print "<= WhatsApp: Logged in"
+        print("<= WhatsApp: Logged in")
         self.toLower(AvailablePresenceProtocolEntity())
 
     @ProtocolEntityCallback("failure")
     def onFailure(self, entity):
-        print "<= WhatsApp: Failure %s" % (entity)
+        print("<= WhatsApp: Failure %s" % (entity))
 
     @ProtocolEntityCallback("notification")
     def onNotification(self, notification):
-        print "<= WhatsApp: Notification %s" % (notification)
+        print("<= WhatsApp: Notification %s" % (notification))
 
     @ProtocolEntityCallback("message")
     def onMessage(self, mEntity):
@@ -107,14 +93,14 @@ class MailLayer(YowInterfaceLayer):
     @ProtocolEntityCallback("iq")
     def onIq(self, entity):
         if args.debug:
-            print "<= WhatsApp: <- Iq {%s}" % (entity)
+            print("<= WhatsApp: <- Iq {%s}" % (entity))
 
     @ProtocolEntityCallback("receipt")
     def onReceipt(self, entity):
         ack = OutgoingAckProtocolEntity(entity.getId(), "receipt",
                 entity.getType(), entity.getFrom())
         if args.debug:
-            print "<= WhatsApp: receipt %s" % (entity)
+            print("<= WhatsApp: receipt %s" % (entity))
         if not args.dry:
             self.toLower(ack)
 
@@ -133,7 +119,7 @@ class MailLayer(YowInterfaceLayer):
                     isbroadcast)
 
         if args.debug:
-            print "subject {%s}, content {%s}, content2 {%s}" % (subject, content, content2)
+            print("subject {%s}, content {%s}, content2 {%s}" % (subject, content, content2))
         self.sendEmailRaw(content2, timestamp=timestamp, niceName=niceName,
                 srclong=srclong, replyAddr=replyAddr, subject=subject)
 
@@ -164,7 +150,7 @@ class MailLayer(YowInterfaceLayer):
                 s.starttls() # Some servers require it, let's try
                 s.ehlo();
             except smtplib.SMTPException:
-                print "<= Mail: Server doesn't support STARTTLS"
+                print("<= Mail: Server doesn't support STARTTLS")
                 if confout.get('force_starttls'):
                     raise
 
@@ -172,10 +158,10 @@ class MailLayer(YowInterfaceLayer):
             s.login(confout.get('user'), confout.get('pass'))
 
         if args.debug:
-            print "dst {%s}, msg.as_string {%s}" % (dst, msg.as_string())
+            print("dst {%s}, msg.as_string {%s}" % (dst, msg.as_string()))
         s.sendmail(dst, [dst], msg.as_string())
         s.quit()
-        print "=> Mail: %s -> %s" % (replyAddr, dst)
+        print("=> Mail: %s -> %s" % (replyAddr, dst))
 
     def onTextMessage(self, mEntity):
         receipt = OutgoingReceiptProtocolEntity(mEntity.getId(),
@@ -216,7 +202,7 @@ class YowsupMyStack(object):
         self.stack.setCredentials(credentials)
 
     def startInputThread(self):
-        print "Starting input thread"
+        print("Starting input thread")
         confinc = config['ingoing']
         if confinc['with'] == "LMTP":
             sockpath = confinc['socket']
@@ -244,13 +230,13 @@ class YowsupMyStack(object):
             while True:
                 # FIXME: polling for IMAP and POP3, use async instead
                 if args.debug:
-                    print "== WhatsApp loop"
-                self.stack.loop(timeout = 10, count = 1)
+                    print("== WhatsApp loop")
+                self.stack.loop(timeout=10, count=1)
                 if args.debug:
-                    print "== Server loop"
+                    print("== Server loop")
                 self.server.loop()
         except AuthError as e:
-            print("Authentication Error: %s" % e.message)
+            print("Authentication Error: %s" % e)
         except Exception as e:
             content = "Exception: %s\n\n%s" % (str(e), traceback.format_exc())
             self.layer.sendEmailRaw(content, subject="WhatsApp crashed")
@@ -278,7 +264,7 @@ class MailParserMixin():
         try:
             txt = mail_to_txt(m)
             if args.debug:
-                print "! mail_to_txt: {%s}" % (txt)
+                print("! mail_to_txt: {%s}" % (txt))
         except Exception as e:
             return "501 malformed content: %s" % (str(e))
 
@@ -287,7 +273,7 @@ class MailParserMixin():
         # send text, if any
         if len(txt.strip()) > 0:
             msg = TextMessageProtocolEntity(txt, to = jid)
-            print "=> WhatsApp: -> %s" % (jid)
+            print("=> WhatsApp: -> %s" % (jid))
             self._yowsup.toLower(msg)
 
         # send media that were attached pieces
@@ -295,33 +281,32 @@ class MailParserMixin():
             for pl in getattr(m, '_payload', []):
                 self.handle_forward_media(jid, pl)
         return False
-
-
-    def handle_forward_media(self, jid, pl):
-            jid = normalizeJid(phone)
-            # send text, if any
-            if len(txt.strip()) > 0:
-                msg = TextMessageProtocolEntity(txt, to = jid)
-                print "=> WhatsApp: -> %s" % (jid)
-                if not args.dry:
-                    self._yowsup.toLower(msg)
-                if args.debug:
-                    print "! Message: {%s}" % (txt)
-                    print "! from entity: {%s}" % (msg.getBody())
-
-            # send media that were attached pieces
-            if m.is_multipart():
-                for pl in getattr(m, '_payload', []):
-                    self.handle_forward_media(jid, pl)
-                    if args.debug:
-                        print "! Attachement: %s" % (pl)
+    #
+    # def handle_forward_media(self, jid, pl):
+    #     jid = normalizeJid(self.phone)
+    #     # send text, if any
+    #     if len(txt.strip()) > 0:
+    #         msg = TextMessageProtocolEntity(txt, to=jid)
+    #         print("=> WhatsApp: -> %s" % (jid))
+    #         if not args.dry:
+    #             self._yowsup.toLower(msg)
+    #         if args.debug:
+    #             print("! Message: {%s}" % (txt))
+    #             print("! from entity: {%s}" % (msg.getBody()))
+    #
+    #     # send media that were attached pieces
+    #     if m.is_multipart():
+    #         for pl in getattr(m, '_payload', []):
+    #             self.handle_forward_media(jid, pl)
+    #             if args.debug:
+    #                 print("! Attachement: %s" % (pl))
 
     def handle_forward_media(self, jid, pl):
         ct = pl.get('Content-Type', 'None')
         ct1 = ct.split('/', 1)[0]
         iqtp = None
         if ct1 == 'text':
-            return # this is the body, probably
+            return  # this is the body, probably
         if ct1 == 'image':
             iqtp = RequestUploadIqProtocolEntity.MEDIA_TYPE_IMAGE
         if ct1 == 'audio':
@@ -332,17 +317,16 @@ class MailParserMixin():
             for pl2 in pl._payload:
                 self.handle_forward_media(jid, pl2)
         if iqtp == None:
-            print "<= Mail: Skip unsupported attachement type %s" % (ct)
+            print("<= Mail: Skip unsupported attachement type %s" % (ct))
             return
 
-        print "<= Mail: Forward attachement %s" % (ct1)
+        print("<= Mail: Forward attachement %s" % (ct1))
         data = mail_payload_decoded(pl)
-        tmpf = tempfile.NamedTemporaryFile(prefix='whatsapp-upload_',
-                delete=False)
+        tmpf = tempfile.NamedTemporaryFile(prefix='whatsapp-upload_', delete=False)
         tmpf.write(data)
         tmpf.close()
         fpath = tmpf.name
-        # FIXME: need to close the file!
+        tmpf.close()
 
         entity = RequestUploadIqProtocolEntity(iqtp, filePath=fpath)
         def successFn(successEntity, originalEntity):
@@ -358,7 +342,7 @@ class MailParserMixin():
         if successEntity.isDuplicate():
             url = successEntity.getUrl()
             ip = successEntity.getIp()
-            print "<= WhatsApp: upload duplicate %s, from %s" % (fpath, url)
+            print("<= WhatsApp: upload duplicate %s, from %s" % (fpath, url))
             self.send_uploaded_media(fpath, jid, url, ip)
         else:
             ownjid = self._yowsup.getOwnJid()
@@ -369,22 +353,22 @@ class MailParserMixin():
                                       self.onUploadError,
                                       self.onUploadProgress,
                                       async=False)
-            print "<= WhatsApp: start upload %s, into %s" \
-                    % (fpath, successEntity.getUrl())
+            print("<= WhatsApp: start upload %s, into %s" \
+                    % (fpath, successEntity.getUrl()))
             mediaUploader.start()
 
     def onUploadSuccess(self, fpath, jid, url):
-        print "WhatsApp: -> upload success %s" % (fpath)
+        print("WhatsApp: -> upload success %s" % (fpath))
         self.send_uploaded_media(fpath, jid, url)
 
     def onUploadError(self, fpath, jid=None, url=None):
-        print "WhatsApp: -> upload failed %s" % (fpath)
+        print("WhatsApp: -> upload failed %s" % (fpath))
         content = "File: %s" % (fpath)
         self._yowsup.sendEmailRaw(content, subject="WhatsApp upload failed")
 
     def onUploadProgress(self, fpath, jid, url, progress):
-        print "WhatsApp: -> upload progression %s for %s, %d%%" \
-                % (fpath, jid, progress)
+        print("WhatsApp: -> upload progression %s for %s, %d%%"
+              % (fpath, jid, progress))
 
     def send_uploaded_media(self, fpath, jid, url, ip = None):
         entity = ImageDownloadableMediaMessageProtocolEntity.fromFilePath(
@@ -393,7 +377,7 @@ class MailParserMixin():
             self._yowsup.toLower(entity)
 
     def onRequestUploadError(self, jid, fpath, errorEntity, originalEntity):
-        print "WhatsApp: -> upload request failed %s" % (fpath)
+        print("WhatsApp: -> upload request failed %s" % (fpath))
         self._yowsup.sendEmail(errorEntity, "WhatsApp upload request failed",
                 "File: %s" % (fpath))
 
@@ -407,7 +391,7 @@ class MailClient(MailParserMixin):
         self.poll_wait = confinc.get('poll_wait', 60)
         self.ssl = confinc.get('ssl', True)
 
-        self.messageQueue = Queue.Queue()
+        self.message_queue = queue.Queue()
         self._yowsup = yowsup
         # FIXME: use asyncore instead
         self.thread = threading.Thread(target=self.worker)
@@ -419,19 +403,19 @@ class MailClient(MailParserMixin):
     def loop(self): # FIXME: threads aren't needed with asyncore
         try:
             while True:
-                m_str = self.messageQueue.get(block=False)
-                m = Parser().parsestr(m_str)
+                m_str = self.message_queue.get(block=False)
+                m = Parser().parsestr(m_str.decode('utf-8'))
                 _, dst = parseaddr(m.get('to'))
                 try:
                     (phone,) = parse(config.get('reply'), dst)
                 except TypeError:
                     if args.debug:
-                        print "mail doesn't match reply: %s" % (dst)
+                        print("mail doesn't match reply: %s" % (dst))
                     break
                 if args.debug:
-                    print "got a message in MailClient's queue for:", phone
+                    print("got a message in MailClient's queue for:", phone)
                 self.send_yowsup(phone, m_str)
-        except Queue.Empty:
+        except queue.Empty:
             pass
 
 
@@ -449,9 +433,9 @@ class Pop3Client(MailClient):
 
             numMessages = len(pop3.list()[1])
             for midx in range(1, numMessages+1):
-                print "<= POP3: Mail id %i" % (midx)
+                print("<= POP3: Mail id %i" % (midx))
                 for msg in pop3.retr(midx)[1]:
-                    self.messageQueue.put(msg)
+                    self.message_queue.put(msg)
                 # to avoid resending
                 pop3.dele(midx) # FIXME: shouldn't delete message
 
@@ -474,10 +458,10 @@ class ImapClient(MailClient):
 
             typ, data = imap.search(None, '(UNSEEN)')
             for num in data[0].split():
-                print "<= IMAP: Mail id %s" % (num)
+                print("<= IMAP: Mail id %s" % (num))
                 typ, data = imap.fetch(num, '(RFC822)')
                 m_str = data[0][1]
-                self.messageQueue.put(m_str)
+                self.message_queue.put(m_str)
 
             imap.close()
             imap.logout()
@@ -495,12 +479,12 @@ class MailServer(SMTPServer, MailParserMixin):
 
     def process_message(self, peer, mailfrom, rcpttos, data):
         m = Parser().parsestr(data)
-        print "<= Mail: %s -> %s" % (mailfrom, rcpttos)
+        print("<= Mail: %s -> %s" % (mailfrom, rcpttos))
 
         try:
             txt = mail_to_txt(m)
             if args.debug:
-                print "! mail_to_txt: {%s}" % (txt)
+                print("! mail_to_txt: {%s}" % (txt))
         except Exception as e:
             return "501 malformed content: %s" % (str(e))
 
@@ -508,7 +492,7 @@ class MailServer(SMTPServer, MailParserMixin):
             try:
                 (phone,) = parse(config.get('reply'), dst)
             except TypeError:
-                print "malformed dst: %s" % (dst)
+                print("malformed dst: %s" % (dst))
                 return "501 malformed recipient: %s" % (dst)
 
             ret = self.send_yowsup(phone, data)
@@ -612,14 +596,14 @@ if __name__ == "__main__":
             help='disable sending to WhatsApp')
     args = p.parse_args()
 
-    print "Parsing config: %s" % (args.config)
+    print("Parsing config: %s" % (args.config))
     config = loadConfig(args.config)
 
-    print "Starting"
+    print("Starting")
     confwhats = config['whatsapp']
     stack = YowsupMyStack((confwhats.get('phone'), confwhats.get('password')))
-    print "Connecting"
+    print("Connecting")
     try:
         stack.start()
     except KeyboardInterrupt:
-        print "Terminated by user"
+        print("Terminated by user")
